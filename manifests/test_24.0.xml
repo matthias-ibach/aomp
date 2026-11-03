@@ -55,5 +55,6 @@
 <project remote="qeomp" path="q-e-omp" name="q-e-omp-repository" revision="develop_omp5_75omp" groups="unlocked" />
 <project remote="kmturbulenz" path="mglet-base" name="mglet-base" revision="master" groups="unlocked" />
 <project remote="ecmwf-ifs" path="ecrad" name="ecrad" revision="master-omp" groups="unlocked" />
+<project remote="ecmwf-ifs" path="ectrans" name="ectrans" revision="develop" groups="unlocked" />
 
 </manifest>
