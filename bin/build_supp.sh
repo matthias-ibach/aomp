@@ -43,16 +43,16 @@ $ $AOMP_SUPP/build/cmdlog              File with log of all components built
 # AOMP scripts that use component <cname> should find the installation
 # in directory $AOMP_SUPP/<cname>.  For example the openmpi lib directory
 # should be referenced as $AOMP_SUPP/<cname>/lib
-# 
+#
 # Known issues:
 # - The _version name for each component must NOT have a "-" in it
 #   because that is used to parse the version from the symbolic link.
-# - One cannot build openmpi till one builds flang and installs into $AOMP. 
+# - One cannot build openmpi till one builds flang and installs into $AOMP.
 #
 EOF
 }
 
-SUPPLEMENTAL_COMPONENTS=${SUPPLEMENTAL_COMPONENTS:-openmpi silo hdf5 netcdf-c netcdf-fortran ecbuild fiat fftw ninja xpmem ucx ucc rocmopenmpi hdf5-parallel}
+SUPPLEMENTAL_COMPONENTS=${SUPPLEMENTAL_COMPONENTS:-openmpi silo hdf5 netcdf-c netcdf-fortran ecbuild fiat lapack fftw ninja xpmem ucx ucc rocmopenmpi hdf5-parallel}
 
 # rocsmilib and hwloc build invocation moved to build_rocm_sysdeps.sh (libdrm support). rocmsmi is dependent on libdrm and hwloc depends on rocmsmi.
 PREREQUISITE_COMPONENTS=${PREREQUISITE_COMPONENTS:-cmake aqlprofile rocm-core}
@@ -817,7 +817,7 @@ function buildnetcdffortran(){
 
 function buildecbuild(){
   local _cname="ecbuild"
-  local _version=3.16.0
+  local _version=develop
   local _installdir=$AOMP_SUPP_INSTALL/$_cname-$_version
   local _linkfrom=$AOMP_SUPP/$_cname
   local _builddir=$AOMP_SUPP_BUILD/$_cname
@@ -835,9 +835,9 @@ function buildecbuild(){
   fi
   runcmd "mkdir -p $_builddir"
   runcmd "cd $_builddir"
-  runcmd "wget https://github.com/ecmwf/ecbuild/archive/refs/tags/$_version.tar.gz"
-  runcmd "tar -xzf $_version.tar.gz"
+  runcmd "git clone --branch $_version https://github.com/ecmwf/ecbuild.git ecbuild-$_version"
   runcmd "cd ecbuild-$_version"
+  echo "# $_cname $_version is commit $(git rev-parse HEAD)" | tee -a "$CMDLOGFILE"
   if [ -d "$_installdir" ] ; then
     runcmd "rm -rf $_installdir"
   fi
@@ -864,7 +864,7 @@ function buildecbuild(){
 
 function buildfiat(){
   local _cname="fiat"
-  local _version=2.0.1
+  local _version=develop
   local _installdir=$AOMP_SUPP_INSTALL/$_cname-$_version
   local _linkfrom=$AOMP_SUPP/$_cname
   local _builddir=$AOMP_SUPP_BUILD/$_cname
@@ -897,9 +897,64 @@ function buildfiat(){
   fi
   runcmd "mkdir -p $_builddir"
   runcmd "cd $_builddir"
-  runcmd "wget https://github.com/ecmwf-ifs/fiat/archive/refs/tags/$_version.tar.gz"
-  runcmd "tar -xzf $_version.tar.gz"
+  runcmd "git clone --branch $_version https://github.com/ecmwf-ifs/fiat.git fiat-$_version"
   runcmd "cd fiat-$_version"
+  echo "# $_cname $_version is commit $(git rev-parse HEAD)" | tee -a "$CMDLOGFILE"
+  if [ -d "$_installdir" ] ; then
+    runcmd "rm -rf $_installdir"
+  fi
+  runcmd "mkdir -p $_installdir"
+  runcmd "mkdir -p build"
+  runcmd "cd build"
+  echo
+  echo " -----Running cmake ---- "
+  echo "${AOMP_CMAKE}" "$(shquot "${MYCMAKEOPTS[@]}")" \
+       "../"
+
+  if ! ${AOMP_CMAKE} "${MYCMAKEOPTS[@]}" ../; then
+    echo "ERROR cmake failed. Cmake flags"
+    echo "      $(shquot "${MYCMAKEOPTS[@]}")"
+    exit 1
+  fi
+  runcmd "make -j${AOMP_JOB_THREADS}"
+  runcmd "make install"
+  if [ -L "$_linkfrom" ] ; then
+    runcmd "rm $_linkfrom"
+  fi
+  runcmd "ln -sfr $_installdir $_linkfrom"
+  echo "# $_linkfrom is now symbolic link to $_installdir " >>"$CMDLOGFILE"
+}
+
+function buildlapack(){
+  local _cname="lapack"
+  local _version=3.12.1
+  local _installdir=$AOMP_SUPP_INSTALL/$_cname-$_version
+  local _linkfrom=$AOMP_SUPP/$_cname
+  local _builddir=$AOMP_SUPP_BUILD/$_cname
+  BUILD_TYPE=${BUILD_TYPE:-Release}
+
+  if checkversion "$_cname" "$_version" "$_linkfrom"; then
+    return
+  fi
+
+  declare -a MYCMAKEOPTS
+  MYCMAKEOPTS=(-DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+             -DCMAKE_INSTALL_PREFIX="$_installdir"
+             -DCMAKE_INSTALL_LIBDIR=lib
+             -DCMAKE_C_COMPILER="$AOMP/bin/clang"
+             -DCMAKE_Fortran_COMPILER="$AOMP/bin/flang"
+             -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+             -DBUILD_SHARED_LIBS=OFF
+             -DBUILD_TESTING=OFF)
+
+  if [ -d "$_builddir" ] ; then
+    runcmd "rm -rf $_builddir"
+  fi
+  runcmd "mkdir -p $_builddir"
+  runcmd "cd $_builddir"
+  runcmd "wget https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v$_version.tar.gz"
+  runcmd "tar -xzf v$_version.tar.gz"
+  runcmd "cd lapack-$_version"
   if [ -d "$_installdir" ] ; then
     runcmd "rm -rf $_installdir"
   fi
@@ -1169,6 +1224,8 @@ for _component in $_components ; do
     buildecbuild
   elif [ "$_component" == "fiat" ] ; then
     buildfiat
+  elif [ "$_component" == "lapack" ] ; then
+    buildlapack
   elif [ "$_component" == "fftw" ] ; then
     buildfftw
   elif [ "$_component" == "hwloc" ] ; then
